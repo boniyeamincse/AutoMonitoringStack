@@ -1,5 +1,7 @@
 # Auto Monitoring Stack
 
+![Auto Monitoring Stack Architecture](images/automonitroing.png)
+
 A comprehensive, Docker-based monitoring solution that is **fully auto-configured** and ready to run out of the box. This stack provides a powerful combination of tools for metrics and logs:
 
 *   **Metrics Visualization:** Use **Grafana** to view pre-built dashboards for system metrics.
