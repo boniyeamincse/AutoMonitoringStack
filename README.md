@@ -192,7 +192,316 @@ The ELK Stack is pre-configured to automatically handle log processing and visua
     -   Kibana is set up to automatically find logs sent to Elasticsearch.
     -   Go to **Analytics > Discover** to view and search your logs. The `logstash-*` index pattern is automatically recognized.
 
-### 7. Stopping and Cleaning Up
+### 8. Agent Connection Guide
+
+This guide explains how to connect various monitoring agents and exporters to different endpoints in your AutoMonitoringStack.
+
+#### Overview of Connection Endpoints
+
+| Service | Protocol | Port | Purpose | Endpoint |
+|---------|----------|------|---------|----------|
+| Prometheus | HTTP | 9090 | Metrics scraping | `http://localhost:9090/metrics` |
+| Logstash | TCP/Beats | 5044 | Log collection | `localhost:5044` |
+| Jaeger | UDP/HTTP | 6831/16686/14268 | Trace collection | See details below |
+| Blackbox Exporter | HTTP/POST | 9115 | Service probing | `http://localhost:9115/probe` |
+| Elasticsearch | HTTP | 9200 | Log storage | `http://localhost:9200` |
+| Redis | TCP | 6379 | Caching | `localhost:6379` |
+
+#### 8.1 Connecting Prometheus Exporters
+
+**Built-in Exporters:**
+- **Node Exporter** (Already configured): Monitors host system metrics
+- **Blackbox Exporter** (Already configured): Probes external services
+
+**Adding Custom Exporters:**
+
+1. **Deploy a new exporter:**
+```bash
+# Example: Adding MySQL Exporter
+docker run -d --name mysql-exporter \
+  -p 9104:9104 \
+  -e DATA_SOURCE_NAME="mysql_monitor:password@(mysql:3306)/" \
+  prom/mysqld-exporter
+
+# Or add to docker-compose.yml
+mysql-exporter:
+  image: prom/mysqld-exporter
+  ports:
+    - "9104:9104"
+  environment:
+    - DATA_SOURCE_NAME="user:password@(mysql:3306)/"
+```
+
+2. **Add to Prometheus scrape config:**
+```yaml
+# Add to prometheus/prometheus.yml
+scrape_configs:
+  - job_name: 'mysql'
+    static_configs:
+      - targets: ['mysql-exporter:9104']
+```
+
+3. **Restart Prometheus:**
+```bash
+docker-compose restart prometheus
+```
+
+#### 8.2 Connecting Log Shipping Agents (ELK Stack)
+
+**Using Filebeat:**
+
+1. **Install Filebeat on target machine:**
+```bash
+# On Linux:
+curl -L -O https://artifacts.elastic.co/downloads/beats/filebeat/filebeat-8.11.1-amd64.deb
+sudo dpkg -i filebeat-8.11.1-amd64.deb
+
+# Or on macOS:
+brew tap elastic/tap
+brew install elastic/tap/filebeat-full
+```
+
+2. **Configure Filebeat:**
+```yaml
+# /etc/filebeat/filebeat.yml
+filebeat.inputs:
+- type: log
+  enabled: true
+  paths:
+    - /var/log/nginx/*.log
+    - /var/log/apache2/*.log
+    - /var/log/application.log
+
+output.logstash:
+  hosts: ["localhost:5044"]
+```
+
+3. **Start Filebeat:**
+```bash
+sudo systemctl enable filebeat
+sudo systemctl start filebeat
+```
+
+**Using Metricbeat for System Metrics:**
+
+```yaml
+# /etc/metricbeat/metricbeat.yml
+metricbeat.modules:
+- module: system
+  metricsets:
+    - cpu
+    - load
+    - memory
+    - network
+    - process
+    - process_summary
+  enabled: true
+  period: 10s
+  processes: ['.*']
+
+output.elasticsearch:
+  hosts: ["localhost:9200"]
+```
+
+#### 8.3 Connecting Tracing Agents (Jaeger)
+
+**Jaeger supports multiple trace ingestion methods:**
+
+1. **OTLP (Recommended):**
+```bash
+# Using OpenTelemetry Collector
+OTEL_EXPORTER_OTLP_ENDPOINT="localhost:14268" \
+OTEL_SERVICE_NAME="my-service" \
+./your-application
+```
+
+2. **Jaeger Client Libraries:**
+```python
+from jaeger_client import Config
+
+def init_jaeger(service_name='my-service'):
+    config = Config(
+        config={
+            'sampler': {'type': 'const', 'param': 1},
+            'logging': True,
+        },
+        service_name=service_name,
+        validate=True,
+    )
+    return config.initialize_tracer()
+
+tracer = init_jaeger('my-service')
+```
+
+3. **Envoy Proxy Configuration:**
+```yaml
+# envoy.yaml
+tracing:
+  http:
+    name: envoy.tracers.zipkin
+    typed_config:
+      "@type": type.googleapis.com/config.trace.v3.ZipkinConfig
+      collector_cluster: jaeger
+      collector_endpoint: "/api/traces"
+      trace_id_128bit: true
+      shared_span_context: false
+
+static_resources:
+  clusters:
+  - name: jaeger
+    connect_timeout: 1.25s
+    type: STRICT_DNS
+    lb_policy: ROUND_ROBIN
+    hosts:
+    - socket_address:
+        address: localhost
+        port_value: 9411
+```
+
+#### 8.4 Connecting Application Metrics
+
+**Using Prometheus Client Libraries:**
+
+1. **Python Application:**
+```python
+from prometheus_client import start_http_server, Counter
+import time
+
+REQUEST_COUNT = Counter('request_count', 'App Request Count')
+
+start_http_server(8080)
+
+while True:
+    REQUEST_COUNT.inc()
+    time.sleep(1)
+```
+
+2. **Java Application:**
+```java
+import io.prometheus.client.hotspot.DefaultExports;
+import io.prometheus.client.springweb.EnableSpring-bootMetricsCollector;
+import org.springframework.boot.SpringApplication;
+
+@SpringBootApplication
+@EnableSpring_bootMetricsCollector
+public class Application {
+    public static void main(String[] args) {
+        DefaultExports.initialize();
+        SpringApplication.run(Application.class, args);
+    }
+}
+```
+
+3. **Go Application:**
+```go
+package main
+
+import (
+    "net/http"
+    "github.com/prometheus/client_golang/prometheus"
+    "github.com/prometheus/client_golang/prometheus/promhttp"
+)
+
+var (
+    requestCount = prometheus.NewCounterVec(
+        prometheus.CounterOpts{
+            Name: "http_requests_total",
+            Help: "Total HTTP requests",
+        },
+        []string{"method", "endpoint"},
+    )
+)
+
+func init() {
+    prometheus.Register(requestCount)
+}
+
+func main() {
+    http.Handle("/metrics", promhttp.Handler())
+    http.ListenAndServe(":8080", nil)
+}
+```
+
+#### 8.5 Connecting Blackbox Probes
+
+**Testing HTTP/HTTPS endpoints:**
+
+```bash
+# Test a website
+curl "http://localhost:9115/probe?target=https://httpbin.org&module=http_2xx"
+
+# Test TCP connectivity
+curl "http://localhost:9115/probe?target=tcp://google.com:80&module=tcp_connect"
+```
+
+**Add custom probes to Prometheus:**
+
+```yaml
+# Add to prometheus/prometheus.yml
+scrape_configs:
+  - job_name: 'blackbox_http'
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets:
+        - https://example.com
+        - https://github.com
+        - https://prometheus.io
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115
+```
+
+#### 8.6 Connecting SNMP Devices
+
+**Configure SNMP Exporter:**
+
+1. **snmp.yml configuration:**
+```yaml
+# /etc/snmp_exporter/snmp.yml
+mydevice:
+  walk:
+  - 1.3.6.1.2.1.1  # System
+  - 1.3.6.1.2.1.2  # Interfaces
+  get:
+  - 1.3.6.1.2.1.1.3.0  # Uptime
+  metrics:
+  - name: device_info
+    oid: 1.3.6.1.2.1.1.1.0
+    type: DisplayString
+```
+
+2. **Add to docker-compose.yml:**
+```yaml
+snmp-exporter:
+  image: prom/snmp-exporter
+  ports:
+    - "9116:9116"
+  volumes:
+    - ./snmp_exporter/snmp.yml:/etc/snmp_exporter/snmp.yml
+```
+
+3. **Configure in Prometheus:**
+```yaml
+# prometheus/prometheus.yml
+scrape_configs:
+  - job_name: 'snmp'
+    static_configs:
+      - targets: ['192.168.1.10']  # SNMP device IP
+    metrics_path: /snmp
+    params:
+      module: [mydevice]
+    relabel_configs:
+      - target_label: __address__
+        replacement: snmp-exporter:9116
+```
+
+### 9. Stopping and Cleaning Up
 
 -   To **stop** all the services without deleting any data:
     ```bash
