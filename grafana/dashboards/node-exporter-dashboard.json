@@ -1,0 +1,85 @@
+{
+  "dashboard": {
+    "panels": [
+      {
+        "id": 1,
+        "title": "CPU Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "100 - (avg by(instance)(rate(node_cpu_seconds_total{mode=\"idle\"}[5m])) * 100)",
+            "legendFormat": "{{instance}}",
+            "datasource": "Prometheus"
+          }
+        ],
+        "xaxis": {
+          "mode": "time"
+        },
+        "yaxes": [
+          {
+            "format": "percent"
+          },
+          {
+            "format": "short"
+          }
+        ]
+      },
+      {
+        "id": 2,
+        "title": "Memory Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) / node_memory_MemTotal_bytes * 100",
+            "legendFormat": "{{instance}}",
+            "datasource": "Prometheus"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percent"
+          },
+          {
+            "format": "short"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "title": "Disk Usage",
+        "type": "graph",
+        "targets": [
+          {
+            "expr": "(node_filesystem_size_bytes - node_filesystem_avail_bytes) / node_filesystem_size_bytes * 100",
+            "legendFormat": "{{instance}} {{mountpoint}}",
+            "datasource": "Prometheus"
+          }
+        ],
+        "yaxes": [
+          {
+            "format": "percent"
+          },
+          {
+            "format": "short"
+          }
+        ]
+      }
+    ],
+    "time": {
+      "from": "now-1h",
+      "to": "now"
+    },
+    "timepicker": {},
+    "templating": {
+      "list": []
+    },
+    "annotations": {
+      "list": []
+    },
+    "refresh": "5m",
+    "schemaVersion": 21,
+    "version": 0,
+    "links": [],
+    "uid": "node-exporter-dashboard"
+  }
+}
