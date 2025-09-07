@@ -1,4 +1,4 @@
-# AutoMonitoringStack
+# Auto Monitoring Stack
 
 A comprehensive, Docker-based monitoring solution that is **fully auto-configured** and ready to run out of the box. This stack provides a powerful combination of tools for metrics and logs:
 
